@@ -236,7 +236,7 @@ init_listen(Mod, Esme, LSock, Tmr, Log) ->
                      timers = Tmr}}.
 
 
-terminate(_Reason, _Stn, Std) ->
+terminate(Reason, _Stn, Std) ->
     exit(Std#st.sock_ctrl, kill),
     if Std#st.sock == undefined -> ok; true -> gen_tcp:close(Std#st.sock) end.
 
@@ -411,7 +411,7 @@ handle_event({input, CmdId, Pdu, _Lapse, _Timestamp}, Stn, Std)
                          Other ->
                              Other
                      end,
-            handle_peer_resp({error, {command_status, Status}}, Ref, Std);
+            handle_peer_resp({error, [{pdu, Pdu}, {command_status, Status}]}, Ref, Std);
         {error, not_found} ->
             % Do not send anything, might enter a request/response loop
             true
@@ -447,7 +447,7 @@ handle_event({input, CmdId, Pdu, _Lapse, _Timestamp}, Stn, Std)
                     {next_state, Stn, Std};
                 Status ->
                     Reason = {command_status, Status},
-                    handle_peer_resp({error, Reason}, Ref, Std),
+                    handle_peer_resp({error, [{pdu, Pdu}, Reason]}, Ref, Std),
                     {next_state, Stn, Std}
             end;
         {error, not_found} ->
@@ -623,7 +623,7 @@ handle_peer_unbind({?COMMAND_ID_UNBIND, Pdu}, St) ->
 handle_timeout({response_timer, SeqNum}, St) ->
     {ok, {SeqNum, CmdId, _, Ref}} = smpp_req_tab:read(St#st.req_tab, SeqNum),
     Status = smpp_operation:request_failure_code(CmdId),
-    handle_peer_resp({error, {command_status, Status}}, Ref, St),
+    handle_peer_resp({error, [{command_status, Status}]}, Ref, St),
     ok;
 handle_timeout(enquire_link_timer, _St) ->
     ok = gen_fsm:send_all_state_event(self(), ?COMMAND_ID_ENQUIRE_LINK);
@@ -665,7 +665,7 @@ send_request(CmdId, Params, From, St) ->
                   enquire_link_timer = smpp_session:start_timer(St#st.timers, enquire_link_timer),
                   inactivity_timer = smpp_session:start_timer(St#st.timers, inactivity_timer)};
         {error, _CmdId, Status, _SeqNum} ->
-            handle_peer_resp({error, {command_status, Status}}, Ref, St),
+            handle_peer_resp({error, [{pdu, Pdu}, {command_status, Status}]}, Ref, St),
             St
     end.
 
