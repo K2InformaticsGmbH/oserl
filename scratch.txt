@@ -1,0 +1,23 @@
+dbg:stop().
+dbg:start().
+dbg:tracer().
+dbg:tp(gen_esme,[]).
+dbg:tpl(gen_esme,[]).
+dbg:tp(gen_esme_session,[]).
+dbg:tpl(gen_esme_session,[]).
+dbg:tp(smpp_operation,[]).
+dbg:tpl(smpp_operation,[]).
+dbg:p(all,c).
+
+% erl -pa ebin -pa deps/*/ebin -s oserl start
+
+test_esme:start_link(trx, false).
+test_esme:send("90031", "90032", "test", []).
+test_esme:stop().
+
+Pdu = {4,0,2,
+[{short_message,"test"},
+ {destination_addr,"90032"},
+ {source_addr_ton,5},
+ {source_addr,"90031"}]}.
+smpp_operation:pack(Pdu).
