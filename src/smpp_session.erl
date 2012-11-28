@@ -159,19 +159,30 @@ wait_accept(Pid, LSock, Log) ->
 wait_recv(Pid, Sock, Log) ->
     receive activate -> ?MODULE:recv_loop(Pid, Sock, <<>>, Log) end.
 
-
 recv_loop(Pid, Sock, Buffer, Log) ->
-    Timestamp = now(),
+    recv_loop(Pid, Sock, Buffer, Log, no_throttle).
+
+recv_loop(Pid, Sock, Buffer, Log, no_throttle) ->
     inet:setopts(Sock, [{active, once}]),
+    recv_loop_(Pid, Sock, Buffer, Log, no_throttle);
+recv_loop(Pid, Sock, Buffer, Log, throttle) ->
+    recv_loop_(Pid, Sock, Buffer, Log, throttle).
+
+recv_loop_(Pid, Sock, Buffer, Log, Throttle) ->
+    Timestamp = now(),
     receive
         {tcp, Sock, Input} ->
             L = timer:now_diff(now(), Timestamp),
             B = handle_input(Pid, list_to_binary([Buffer, Input]), L, 1, Log),
-            ?MODULE:recv_loop(Pid, Sock, B, Log);
+            recv_loop(Pid, Sock, B, Log, Throttle);
         {tcp_closed, Sock} ->
             gen_fsm:send_all_state_event(Pid, {sock_error, closed});
         {tcp_error, Sock, Reason} ->
-            gen_fsm:send_all_state_event(Pid, {sock_error, Reason})
+            gen_fsm:send_all_state_event(Pid, {sock_error, Reason});
+        throttle ->
+            recv_loop(Pid, Sock, Buffer, Log, throttle);
+        no_throttle ->
+            recv_loop(Pid, Sock, Buffer, Log, no_throttle)
     end.
 
 %%%-----------------------------------------------------------------------------
