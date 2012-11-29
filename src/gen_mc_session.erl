@@ -38,9 +38,6 @@
 %%% START/STOP EXPORTS
 -export([start_link/2, stop/1, stop/2]).
 
-%%% THROTTLE EXPORT
--export([throttle/2]).
-
 %%% SMPP EXPORTS
 -export([reply/2,
          alert_notification/2,
@@ -123,12 +120,6 @@ stop(FsmRef) ->
 
 stop(FsmRef, Reason) ->
     gen_fsm:sync_send_all_state_event(FsmRef, {stop, Reason}, ?ASSERT_TIME).
-
-%%%-----------------------------------------------------------------------------
-%%% THROTTLE EXPORTS
-%%%-----------------------------------------------------------------------------
-throttle(FsmRef, DoThrottle) ->
-    gen_fsm:send_all_state_event(FsmRef, {throttle, DoThrottle}).
 
 %%%-----------------------------------------------------------------------------
 %%% SMPP EXPORTS
@@ -416,11 +407,8 @@ esme_rinvbndsts_resp({CmdId, Pdu}, Sock, Log) ->
 %%%-----------------------------------------------------------------------------
 %%% HANDLE EXPORTS
 %%%-----------------------------------------------------------------------------
-handle_event({throttle, true}, Stn, Std) ->
-    Std#st.sock_ctrl ! throttle,
-    {next_state, Stn, Std};
-handle_event({throttle, false}, Stn, Std) ->
-    Std#st.sock_ctrl ! no_throttle,
+handle_event(queue_normal, Stn, Std) ->
+    Std#st.sock_ctrl ! queue_normal,
     {next_state, Stn, Std};
 handle_event({input, CmdId, _Pdu, _Lapse, _Timestamp}, Stn, Std)
   when CmdId == ?COMMAND_ID_ENQUIRE_LINK_RESP ->

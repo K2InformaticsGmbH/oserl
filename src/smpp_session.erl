@@ -35,7 +35,7 @@
 -export([congestion/3, connect/1, listen/1, tcp_send/2, send_pdu/3]).
 
 %%% SOCKET LISTENER FUNCTIONS EXPORTS
--export([wait_accept/3, wait_recv/3, recv_loop/4]).
+-export([wait_accept/3, wait_recv/3]).
 
 %% TIMER EXPORTS
 -export([cancel_timer/1, start_timer/2]).
@@ -146,10 +146,10 @@ wait_accept(Pid, LSock, Log) ->
         {ok, Sock} ->
             case handle_accept(Pid, Sock) of
                 true ->
-                    ?MODULE:recv_loop(Pid, Sock, <<>>, Log);
+                    recv_loop(Pid, Sock, <<>>, Log);
                 false ->
                     gen_tcp:close(Sock),
-                    ?MODULE:wait_accept(Pid, LSock, Log)
+                    wait_accept(Pid, LSock, Log)
             end;
         {error, Reason} ->
             gen_fsm:send_all_state_event(Pid, {listen_error, Reason})
@@ -157,32 +157,28 @@ wait_accept(Pid, LSock, Log) ->
 
 
 wait_recv(Pid, Sock, Log) ->
-    receive activate -> ?MODULE:recv_loop(Pid, Sock, <<>>, Log) end.
+    receive activate -> 
+	recv_loop(Pid, Sock, <<>>, Log) end.
 
 recv_loop(Pid, Sock, Buffer, Log) ->
-    recv_loop(Pid, Sock, Buffer, Log, no_throttle).
-
-recv_loop(Pid, Sock, Buffer, Log, no_throttle) ->
-    inet:setopts(Sock, [{active, once}]),
-    recv_loop_(Pid, Sock, Buffer, Log, no_throttle);
-recv_loop(Pid, Sock, Buffer, Log, throttle) ->
-    recv_loop_(Pid, Sock, Buffer, Log, throttle).
-
-recv_loop_(Pid, Sock, Buffer, Log, Throttle) ->
+    case ets:lookup(mpro_smpp_throttling, Pid) of
+	[] ->
+            inet:setopts(Sock, [{active, once}]);
+	[{Pid, _}] ->
+	    ok
+    end,
     Timestamp = now(),
     receive
         {tcp, Sock, Input} ->
             L = timer:now_diff(now(), Timestamp),
             B = handle_input(Pid, list_to_binary([Buffer, Input]), L, 1, Log),
-            recv_loop(Pid, Sock, B, Log, Throttle);
+            recv_loop(Pid, Sock, B, Log);
         {tcp_closed, Sock} ->
             gen_fsm:send_all_state_event(Pid, {sock_error, closed});
         {tcp_error, Sock, Reason} ->
             gen_fsm:send_all_state_event(Pid, {sock_error, Reason});
-        throttle ->
-            recv_loop(Pid, Sock, Buffer, Log, throttle);
-        no_throttle ->
-            recv_loop(Pid, Sock, Buffer, Log, no_throttle)
+	queue_normal ->
+	    recv_loop(Pid, Sock, Buffer, Log)
     end.
 
 %%%-----------------------------------------------------------------------------
