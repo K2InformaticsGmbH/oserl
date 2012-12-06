@@ -157,15 +157,15 @@ wait_accept(Pid, LSock, Log) ->
 
 
 wait_recv(Pid, Sock, Log) ->
-    receive activate -> 
+    receive activate ->
 	recv_loop(Pid, Sock, <<>>, Log) end.
 
 recv_loop(Pid, Sock, Buffer, Log) ->
-    case ets:lookup(mpro_smpp_throttling, Pid) of
-	[] ->
+    case cl_throttler:throttling(Pid) of
+        false ->
             inet:setopts(Sock, [{active, once}]);
-	[{Pid, _}] ->
-	    ok
+        true ->
+            ok
     end,
     Timestamp = now(),
     receive
@@ -174,11 +174,14 @@ recv_loop(Pid, Sock, Buffer, Log) ->
             B = handle_input(Pid, list_to_binary([Buffer, Input]), L, 1, Log),
             recv_loop(Pid, Sock, B, Log);
         {tcp_closed, Sock} ->
+            cl_throttler:unthrottle(Pid),
             gen_fsm:send_all_state_event(Pid, {sock_error, closed});
         {tcp_error, Sock, Reason} ->
+            cl_throttler:unthrottle(Pid),
             gen_fsm:send_all_state_event(Pid, {sock_error, Reason});
-	queue_normal ->
-	    recv_loop(Pid, Sock, Buffer, Log)
+        queue_normal ->
+            cl_throttler:unthrottle(Pid),
+            recv_loop(Pid, Sock, Buffer, Log)
     end.
 
 %%%-----------------------------------------------------------------------------
