@@ -236,7 +236,7 @@ init_listen(Mod, Esme, LSock, Tmr, Log) ->
                      timers = Tmr}}.
 
 
-terminate(Reason, _Stn, Std) ->
+terminate(_Reason, _Stn, Std) ->
     exit(Std#st.sock_ctrl, kill),
     if Std#st.sock == undefined -> ok; true -> gen_tcp:close(Std#st.sock) end.
 
@@ -652,7 +652,13 @@ send_enquire_link(St) ->
 send_request(CmdId, Params, From, St) ->
     Ref = make_ref(),
     gen_fsm:reply(From, Ref),
-    SeqNum = ?INCR_SEQUENCE_NUMBER(St#st.sequence_number),
+    SeqNum =
+    case proplists:get_value(sequence_number, Params) of
+        undefined ->
+            ?INCR_SEQUENCE_NUMBER(St#st.sequence_number);
+        N ->
+            N
+    end,
     Pdu = smpp_operation:new(CmdId, SeqNum, Params),
     case smpp_operation:pack(Pdu) of
         {ok, BinPdu} ->
