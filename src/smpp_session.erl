@@ -161,12 +161,7 @@ wait_recv(Pid, Sock, Log) ->
 	recv_loop(Pid, Sock, <<>>, Log) end.
 
 recv_loop(Pid, Sock, Buffer, Log) ->
-    case cl_throttler:throttling(Pid) of
-        false ->
-            inet:setopts(Sock, [{active, once}]);
-        true ->
-            ok
-    end,
+    inet:setopts(Sock, [{active, once}]),
     Timestamp = now(),
     receive
         {tcp, Sock, Input} ->
@@ -174,14 +169,9 @@ recv_loop(Pid, Sock, Buffer, Log) ->
             B = handle_input(Pid, list_to_binary([Buffer, Input]), L, 1, Log),
             recv_loop(Pid, Sock, B, Log);
         {tcp_closed, Sock} ->
-            cl_throttler:unthrottle(Pid),
             gen_fsm:send_all_state_event(Pid, {sock_error, closed});
         {tcp_error, Sock, Reason} ->
-            cl_throttler:unthrottle(Pid),
-            gen_fsm:send_all_state_event(Pid, {sock_error, Reason});
-        queue_normal ->
-            cl_throttler:unthrottle(Pid),
-            recv_loop(Pid, Sock, Buffer, Log)
+            gen_fsm:send_all_state_event(Pid, {sock_error, Reason})
     end.
 
 %%%-----------------------------------------------------------------------------

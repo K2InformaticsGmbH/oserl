@@ -407,9 +407,6 @@ esme_rinvbndsts_resp({CmdId, Pdu}, Sock, Log) ->
 %%%-----------------------------------------------------------------------------
 %%% HANDLE EXPORTS
 %%%-----------------------------------------------------------------------------
-handle_event(queue_normal, Stn, Std) ->
-    Std#st.sock_ctrl ! queue_normal,
-    {next_state, Stn, Std};
 handle_event({input, CmdId, _Pdu, _Lapse, _Timestamp}, Stn, Std)
   when CmdId == ?COMMAND_ID_ENQUIRE_LINK_RESP ->
     smpp_session:cancel_timer(Std#st.enquire_link_resp_timer),
