@@ -123,8 +123,10 @@ tcp_send(Sock, Data) when is_port(Sock) ->
 send_pdu(Sock, BinPdu, Log) when is_list(BinPdu) ->
     case tcp_send(Sock, BinPdu) of
         ok ->
+            log(Sock, output, BinPdu),
             ok = smpp_log_mgr:pdu(Log, BinPdu);
         {error, Reason} ->
+            log(Sock, output_error, BinPdu),
             gen_fsm:send_all_state_event(self(), {sock_error, Reason})
     end;
 
@@ -146,8 +148,10 @@ wait_accept(Pid, LSock, Log) ->
         {ok, Sock} ->
             case handle_accept(Pid, Sock) of
                 true ->
+                    log(Sock, accept, <<>>),
                     recv_loop(Pid, Sock, <<>>, Log);
                 false ->
+                    log(Sock, reject, <<>>),
                     gen_tcp:close(Sock),
                     wait_accept(Pid, LSock, Log)
             end;
@@ -166,7 +170,7 @@ recv_loop(Pid, Sock, Buffer, Log) ->
     receive
         {tcp, Sock, Input} ->
             L = timer:now_diff(now(), Timestamp),
-            B = handle_input(Pid, list_to_binary([Buffer, Input]), L, 1, Log),
+            B = handle_input(Sock, Pid, list_to_binary([Buffer, Input]), L, 1, Log),
             recv_loop(Pid, Sock, B, Log);
         {tcp_closed, Sock} ->
             gen_fsm:send_all_state_event(Pid, {sock_error, closed});
@@ -222,7 +226,7 @@ handle_accept(Pid, Sock) ->
     end.
 
 
-handle_input(Pid, <<CmdLen:32, Rest/binary>> = Buffer, Lapse, N, Log) ->
+handle_input(Sock, Pid, <<CmdLen:32, Rest/binary>> = Buffer, Lapse, N, Log) ->
     Now = now(), % PDU received.  PDU handling starts now!
     Len = CmdLen - 4,
     case Rest of
@@ -230,20 +234,137 @@ handle_input(Pid, <<CmdLen:32, Rest/binary>> = Buffer, Lapse, N, Log) ->
             BinPdu = <<CmdLen:32, PduRest/binary>>,
             case catch smpp_operation:unpack(BinPdu) of
                 {ok, Pdu} ->
-                    smpp_log_mgr:pdu(Log, BinPdu),
+                    log(Sock, input, BinPdu),
+                    %% smpp_log_mgr:pdu(Log, BinPdu),
                     CmdId = smpp_operation:get_value(command_id, Pdu),
                     Event = {input, CmdId, Pdu, (Lapse div N), Now},
                     gen_fsm:send_all_state_event(Pid, Event);
                 {error, _CmdId, _Status, _SeqNum} = Event ->
+                    log(Sock, input_error, BinPdu),
                     gen_fsm:send_all_state_event(Pid, Event);
                 {'EXIT', _What} ->
+                    log(Sock, input_error_unknown, BinPdu),
                     Event = {error, 0, ?ESME_RUNKNOWNERR, 0},
                     gen_fsm:send_all_state_event(Pid, Event)
             end,
             % The buffer may carry more than one SMPP PDU.
-            handle_input(Pid, NextPdus, Lapse, N + 1, Log);
+            handle_input(Sock, Pid, NextPdus, Lapse, N + 1, Log);
         _IncompletePdu ->
             Buffer
     end;
-handle_input(_Pid, Buffer, _Lapse, _N, _Log) ->
+handle_input(_Sock, _Pid, Buffer, _Lapse, _N, _Log) ->
     Buffer.
+
+log(Socket, Type, BinPduu) ->
+    BinPdu = iolist_to_binary(BinPduu),
+    case inet:peername(Socket) of
+        {ok, {RemoteAddr, RemotePort}} ->
+            case inet:sockname(Socket) of
+                {ok, {LocalAddr, LocalPort}} ->
+                    case Type of
+                        accept ->
+                            LogMessage = lists:flatten([
+                                        "ACCEPT"
+                                        "\tORIGINATOR=", inet_parse:ntoa(RemoteAddr),":", integer_to_list(RemotePort),
+                                        "\tDESTINATION=", inet_parse:ntoa(LocalAddr),":", integer_to_list(LocalPort)
+                                        ]),
+                            lager:info([
+                                    {imem_table, smpp},
+                                    {originator_addr, RemoteAddr},
+                                    {originator_port, RemotePort},
+                                    {channel_in, LocalPort}
+                                    ], LogMessage);
+
+                        reject ->
+                            LogMessage = lists:flatten([
+                                        "REJECT"
+                                        "\tORIGINATOR=", inet_parse:ntoa(RemoteAddr),":", integer_to_list(RemotePort),
+                                        "\tDESTINATION=", inet_parse:ntoa(LocalAddr),":", integer_to_list(LocalPort)
+                                        ]),
+                            lager:info([
+                                    {imem_table, smpp},
+                                    {originator_addr, RemoteAddr},
+                                    {originator_port, RemotePort},
+                                    {channel_in, LocalPort}
+                                    ], LogMessage);
+
+                        input ->
+                            LogMessage = lists:flatten([
+                                        "INPUT",
+                                        "\tORIGINATOR=", inet_parse:ntoa(RemoteAddr),":", integer_to_list(RemotePort),
+                                        "\tDESTINATION=", inet_parse:ntoa(LocalAddr),":", integer_to_list(LocalPort),
+                                        "\tLENGTH=", integer_to_list(byte_size(BinPdu)),
+                                        "\tDATA=", bin_to_hex:bin_to_hex(BinPdu)
+                                        ]),
+                            lager:info([
+                                    {imem_table, smpp},
+                                    {originator_addr, RemoteAddr},
+                                    {originator_port, RemotePort},
+                                    {channel_in, LocalPort}
+                                    ], LogMessage);
+
+                        input_error ->
+                            LogMessage = lists:flatten([
+                                        "ERROR",
+                                        "\tORIGINATOR=", inet_parse:ntoa(RemoteAddr),":", integer_to_list(RemotePort),
+                                        "\tDESTINATION=", inet_parse:ntoa(LocalAddr),":", integer_to_list(LocalPort),
+                                        "\tLENGTH=", integer_to_list(byte_size(BinPdu)),
+                                        "\tDATA=", bin_to_hex:bin_to_hex(BinPdu)
+                                        ]),
+                            lager:info([
+                                    {imem_table, smpp_parse_error},
+                                    {originator_addr, RemoteAddr},
+                                    {originator_port, RemotePort},
+                                    {channel_in, LocalPort}
+                                    ], LogMessage);
+
+                        input_error_unknown ->
+                            LogMessage = lists:flatten([
+                                        "ERROR",
+                                        "\tORIGINATOR=", inet_parse:ntoa(RemoteAddr),":", integer_to_list(RemotePort),
+                                        "\tDESTINATION=", inet_parse:ntoa(LocalAddr),":", integer_to_list(LocalPort),
+                                        "\tLENGTH=", integer_to_list(byte_size(BinPdu)),
+                                        "\tDATA=", bin_to_hex:bin_to_hex(BinPdu)
+                                        ]),
+                            lager:info([
+                                    {imem_table, smpp_unknown_parse_error},
+                                    {originator_addr, RemoteAddr},
+                                    {originator_port, RemotePort},
+                                    {channel_in, LocalPort}
+                                    ], LogMessage);
+
+                        output ->
+                            LogMessage = lists:flatten([
+                                        "OUTPUT",
+                                        "\tORIGINATOR=", inet_parse:ntoa(LocalAddr),":", integer_to_list(LocalPort),
+                                        "\tDESTINATION=", inet_parse:ntoa(RemoteAddr),":", integer_to_list(RemotePort),
+                                        "\tLENGTH=", integer_to_list(byte_size(BinPdu)),
+                                        "\tDATA=", bin_to_hex:bin_to_hex(BinPdu)
+                                        ]),
+                            lager:info([
+                                    {imem_table, smpp},
+                                    {originator_addr, RemoteAddr},
+                                    {originator_port, RemotePort},
+                                    {channel_in, LocalPort}
+                                    ], LogMessage);
+
+                        output_error ->
+                            LogMessage = lists:flatten([
+                                        "ERROR",
+                                        "\tORIGINATOR=", inet_parse:ntoa(LocalAddr),":", integer_to_list(LocalPort),
+                                        "\tDESTINATION=", inet_parse:ntoa(RemoteAddr),":", integer_to_list(RemotePort),
+                                        "\tLENGTH=", integer_to_list(byte_size(BinPdu)),
+                                        "\tDATA=", bin_to_hex:bin_to_hex(BinPdu)
+                                        ]),
+                            lager:info([
+                                    {imem_table, smpp_send_error},
+                                    {originator_addr, RemoteAddr}
+                                    ], LogMessage)
+                    end;
+                {error, _} ->
+                    ok
+            end;
+        {error, _} ->
+            ok
+    end.
+
