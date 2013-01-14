@@ -137,6 +137,7 @@ send_pdu(Sock, Pdu, Log) ->
             send_pdu(Sock, BinPdu, Log);
         {error, _CmdId, Status, _SeqNum} ->
             gen_tcp:close(Sock),
+            log(Sock, close, <<>>),
             exit({command_status, Status})
     end.
 
@@ -173,6 +174,7 @@ recv_loop(Pid, Sock, Buffer, Log) ->
             B = handle_input(Sock, Pid, list_to_binary([Buffer, Input]), L, 1, Log),
             recv_loop(Pid, Sock, B, Log);
         {tcp_closed, Sock} ->
+            log(Sock, close, <<>>),
             gen_fsm:send_all_state_event(Pid, {sock_error, closed});
         {tcp_error, Sock, Reason} ->
             gen_fsm:send_all_state_event(Pid, {sock_error, Reason})
@@ -264,17 +266,26 @@ log(Socket, Type, BinPduu) ->
                     case Type of
                         accept ->
                             lager:info([
-                                    {imem_table, smpp},
+                                    {imem_table, 'smpp@'},
                                     {originator_addr, RemoteAddr},
                                     {originator_port, RemotePort},
                                     {destination_addr, LocalAddr},
                                     {destination_port, LocalPort},
                                     {data, BinPdu}
                                     ], "ACCEPT");
+                        close ->
+                            lager:info([
+                                    {imem_table, 'smpp@'},
+                                    {originator_addr, RemoteAddr},
+                                    {originator_port, RemotePort},
+                                    {destination_addr, LocalAddr},
+                                    {destination_port, LocalPort},
+                                    {data, BinPdu}
+                                    ], "CLOSE");
 
                         reject ->
                             lager:info([
-                                    {imem_table, smpp},
+                                    {imem_table, 'smpp@'},
                                     {originator_addr, RemoteAddr},
                                     {originator_port, RemotePort},
                                     {destination_addr, LocalAddr},
@@ -284,7 +295,7 @@ log(Socket, Type, BinPduu) ->
 
                         input ->
                             lager:info([
-                                    {imem_table, smpp},
+                                    {imem_table, 'smpp@'},
                                     {originator_addr, RemoteAddr},
                                     {originator_port, RemotePort},
                                     {destination_addr, LocalAddr},
@@ -294,7 +305,7 @@ log(Socket, Type, BinPduu) ->
 
                         input_error ->
                             lager:info([
-                                    {imem_table, smpp_parse_error},
+                                    {imem_table, 'smpp_parse_error@'},
                                     {originator_addr, RemoteAddr},
                                     {originator_port, RemotePort},
                                     {destination_addr, LocalAddr},
@@ -304,7 +315,7 @@ log(Socket, Type, BinPduu) ->
 
                         input_error_unknown ->
                             lager:info([
-                                    {imem_table, smpp_unknown_parse_error},
+                                    {imem_table, 'smpp_unknown_parse_error@'},
                                     {originator_addr, RemoteAddr},
                                     {originator_port, RemotePort},
                                     {destination_addr, LocalAddr},
@@ -314,7 +325,7 @@ log(Socket, Type, BinPduu) ->
 
                         output ->
                             lager:info([
-                                    {imem_table, smpp},
+                                    {imem_table, 'smpp@'},
                                     {originator_addr, RemoteAddr},
                                     {originator_port, RemotePort},
                                     {destination_addr, LocalAddr},
@@ -324,7 +335,7 @@ log(Socket, Type, BinPduu) ->
 
                         output_error ->
                             lager:info([
-                                    {imem_table, smpp_send_error},
+                                    {imem_table, 'smpp_send_error@'},
                                     {originator_addr, RemoteAddr},
                                     {originator_port, RemotePort},
                                     {destination_addr, LocalAddr},
