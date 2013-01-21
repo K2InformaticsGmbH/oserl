@@ -170,6 +170,7 @@ init([Mod, Mc, Opts]) ->
 init_open(Mod, Mc, Sock, Tmr, Log) ->
     Self = self(),
     Pid = spawn_link(smpp_session, wait_recv, [Self, Sock, Log]),
+    put(sock, Sock),
     {ok, open, #st{mc = Mc,
                    mod = Mod,
                    log = Log,

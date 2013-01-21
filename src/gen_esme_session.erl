@@ -210,6 +210,7 @@ init([Mod, Esme, Opts]) ->
 init_open(Mod, Esme, Sock, Tmr, Log) ->
     Self = self(),
     Pid = spawn_link(smpp_session, wait_recv, [Self, Sock, Log]),
+    put(sock, Sock),
     {ok, open, #st{esme = Esme,
                    mod = Mod,
                    log = Log,
