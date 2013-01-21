@@ -120,11 +120,11 @@ tcp_send(Sock, Data) when is_port(Sock) ->
     end.
 
 
-send_pdu(Sock, BinPdu, Log) when is_list(BinPdu) ->
+send_pdu(Sock, BinPdu, _Log) when is_list(BinPdu) ->
     case tcp_send(Sock, BinPdu) of
         ok ->
             log(Sock, output, BinPdu),
-            ok = smpp_log_mgr:pdu(Log, BinPdu);
+            ok;
         {error, Reason} ->
             log(Sock, output_error, BinPdu),
             gen_fsm:send_all_state_event(self(), {sock_error, Reason})
@@ -326,20 +326,20 @@ log(Socket, Type, BinPduu) ->
                         output ->
                             lager:info([
                                     {imem_table, 'smpp@'},
-                                    {originator_addr, RemoteAddr},
-                                    {originator_port, RemotePort},
-                                    {destination_addr, LocalAddr},
-                                    {destination_port, LocalPort},
+                                    {originator_addr, LocalAddr},
+                                    {originator_port, LocalPort},
+                                    {destination_addr, RemoteAddr},
+                                    {destination_port, RemotePort},
                                     {data, BinPdu}
                                     ], "OUTPUT");
 
                         output_error ->
                             lager:info([
                                     {imem_table, 'smpp_send_error@'},
-                                    {originator_addr, RemoteAddr},
-                                    {originator_port, RemotePort},
-                                    {destination_addr, LocalAddr},
-                                    {destination_port, LocalPort},
+                                    {originator_addr, LocalAddr},
+                                    {originator_port, LocalPort},
+                                    {destination_addr, RemoteAddr},
+                                    {destination_port, RemotePort},
                                     {data, BinPdu}
                                     ], "ERROR")
                     end;
