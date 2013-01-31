@@ -381,6 +381,19 @@ unbound({timeout, _Ref, Timer}, St) ->
         {error, Reason} ->
             {stop, Reason, St}
     end;
+unbound({CmdId, _Pdu} = R, St)
+  when CmdId == ?COMMAND_ID_BIND_RECEIVER;
+       CmdId == ?COMMAND_ID_BIND_TRANSMITTER;
+       CmdId == ?COMMAND_ID_BIND_TRANSCEIVER ->
+    case handle_peer_bind(R, St) of
+        true ->
+            smpp_session:cancel_timer(St#st.session_init_timer),
+            smpp_session:cancel_timer(St#st.inactivity_timer),
+            Timer = smpp_session:start_timer(St#st.timers, inactivity_timer),
+            {next_state, ?BOUND(CmdId), St#st{inactivity_timer = Timer}};
+        false ->
+            {next_state, unbound, St}
+    end;
 unbound(R, St) ->
     esme_rinvbndsts_resp(R, St#st.sock, St#st.log),
     {next_state, unbound, St}.
